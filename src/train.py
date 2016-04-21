@@ -51,11 +51,56 @@ def load_train_cv(encoder):
 
     return X_train, y_train, X_test, y_test, encoder
 
+def load_train_cv_by_driver(encoder):
+    X_train = []
+    y_train = []
+    X_valid = []
+    y_valid = []
+    X_driver = []
+    driver_imgs_list = pd.read_csv("../input/driver_imgs_list.csv")
+    for name in driver_imgs_list['subject']:
+        X_driver.append(name)
+    X_driver = list(set(X_driver))
+    random.shuffle(X_driver)
+    valid_driver = set(X_driver[-1:])
+    train_driver = set(X_driver[0:-1])
+    tot = len(driver_imgs_list)
+    count = 0
+    for row in xrange(len(driver_imgs_list)):
+        count += 1
+        if count % 1000 ==0: print count,"finished","tot",tot
+        index = row
+        classname = driver_imgs_list['classname'][row]
+        img_path =  driver_imgs_list['img'][row]
+        driver =  driver_imgs_list['subject'][row]
+        path = os.path.join('..','input','train',classname,img_path)
+        img = cv2.imread(path,0)
+        img = cv2.resize(img,(PIXELS,PIXELS))
+        img = np.reshape(img,(num_features))
+        if driver in train_driver:
+            X_train.append(img)
+            y_train.append(classname)
+        elif driver in valid_driver:
+            X_valid.append(img)
+            y_valid.append(classname)
+    encoder.fit(y_train+y_valid)
+    y_train = encoder.transform(y_train).astype('int32')
+    y_valid = encoder.transform(y_valid).astype('int32')
+    X_train =  np.array(X_train) /255.
+    X_valid =  np.array(X_valid )/255.
+    return X_train,y_train,X_valid,y_valid,encoder
+
+
+
+
+
+
+
 
 
 def load_test():
     print('Read test images')
-    path = os.path.join('..', 'input', 'test', '*.jpg')
+    path = os.path.join('..', 'input', 'test', '*')
     files = glob.glob(path)
     X_test = []
     X_test_id = []
@@ -84,17 +129,16 @@ def load_test():
 
 # load the training and validation data sets
 encoder = LabelEncoder()
-train_X, train_y, valid_X, valid_y, encoder = load_train_cv(encoder)
+#train_X, train_y, valid_X, valid_y, encoder = load_train_cv(encoder)
+train_X, train_y, valid_X, valid_y, encoder = load_train_cv_by_driver(encoder)
 print('Train shape:', train_X.shape, 'Valid shape:', valid_X.shape)
 
-# load data
-#X_test, X_test_id = load_test()
 
 
 
 # SETTINGs
 LEARNING_RATE = 1e-4
-TRAINING_ITERATION = 2500
+TRAINING_ITERATION = 10000
 
 DROPOUT = 0.5
 BATCH_SIZE = 50
@@ -182,6 +226,7 @@ with tf.variable_scope('fc2'):
 y = tf.matmul(h_fc1_drop,W_fc2)+b_fc2
 # Cross entropy
 cross_entropy = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(y,y_))
+distribution = tf.nn.softmax(y)
 
 train_step = tf.train.AdamOptimizer(LEARNING_RATE).minimize(cross_entropy)
 
@@ -230,7 +275,7 @@ sess.run(init)
 train_accuracies = []
 validation_accuracies = []
 x_range = []
-display_step = 1
+display_step = 100
 
 
 for i in range(TRAINING_ITERATION):
@@ -247,8 +292,14 @@ for i in range(TRAINING_ITERATION):
 
 
 
+# Predict for test data
 
-
-
-
+# load data
+X_test, X_test_id = load_test()
+predicted_label = np.zeros((X_test.shape[0],10))
+for i in range(X_test.shape[0]):
+    predicted_label[i*BATCH_SIZE:(i+1)*BATCH_SIZE] =  distribution.eval(feed_dict={x:X_test[i*BATCH_SIZE:(i+1)*BATCH_SIZE],keep_prob:1.0})
+with open('submission.csv','wb') as f:
+    print X_test_id.shape,predicted_label.shape
+    np.savetxt(f,np.hstack((np.array([X_test_id]).T,predicted_label)),delimiter=',',fmt="%s",header='img,c0,c1,c2,c3,c4,c5,c6,c7,c8,c9')
 
